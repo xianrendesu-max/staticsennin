@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>仙人YouTubeビュアー</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{font-family:sans-serif;background:#1e1e2f;color:#fff;margin:0}
+header{background:#27293d;padding:1em;text-align:center;font-size:1.5em}
+nav{display:flex;background:#33354a}
+nav button{flex:1;padding:1em;border:none;background:none;color:#aaa;cursor:pointer}
+nav button.active{background:#444667;color:#fff;font-weight:bold}
+main{padding:1em}
+section{display:none}
+section.active{display:block}
+.search-box{display:flex;margin-bottom:1em}
+.search-box input{flex:1;padding:.5em;border:none}
+.search-box button{padding:.5em 1em;border:none;background:#4caf50;color:#fff}
+.video-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1em}
+.video-card{background:#2d2f44;border-radius:8px;overflow:hidden;cursor:pointer}
+.video-card img{width:100%}
+.info{padding:.5em}
+.title{font-weight:bold}
+.channel{color:#aaa;font-size:.9em}
+.clear-btn,.load-more-btn{margin:1em auto;display:block;padding:.5em 1em;border:none;border-radius:4px;color:#fff}
+.clear-btn{background:#f44336}
+.load-more-btn{background:#2196f3}
+</style>
+</head>
+<body>
+
+<header>仙人YouTubeビュアー</header>
+
+<nav>
+<button id="tab-search" class="active">検索</button>
+<button id="tab-history">履歴</button>
+<button id="tab-fav">お気に入り</button>
+</nav>
+
+<main>
+<section id="search" class="active">
+<div class="search-box">
+<input id="q" placeholder="検索...">
+<button id="searchBtn">検索</button>
+</div>
+<div id="results" class="video-list"></div>
+<button id="more" class="load-more-btn" style="display:none">もっと見る</button>
+</section>
+
+<section id="history">
+<button class="clear-btn" id="clearHistory">履歴を全削除</button>
+<div id="historyList" class="video-list"></div>
+</section>
+
+<section id="fav">
+<div id="favList" class="video-list"></div>
+</section>
+</main>
+
+<script>
+/* ===== API LISTS（完全一致・改変なし）===== */
+const VIDEO_APIS_EXTRA = [
+    "https://invidious.exma.de/",
+    "https://invidious.f5.si/",
+    "https://siawaseok-wakame-server2.glitch.me/",
+    "https://lekker.gay/",
+    "https://id.420129.xyz/",
+    "https://invid-api.poketube.fun/",
+    "https://eu-proxy.poketube.fun/",
+    "https://cal1.iv.ggtyler.dev/",
+    "https://pol1.iv.ggtyler.dev/",
+];
+
+const SEARCH_APIS_EXTRA = [
+    "https://pol1.iv.ggtyler.dev/",
+    "https://youtube.mosesmang.com/",
+    "https://iteroni.com/",
+    "https://invidious.0011.lt/",
+    "https://iv.melmac.space/",
+    "https://rust.oskamp.nl/",
+];
+
+/* ===== STORAGE ===== */
+const HKEY="sennin_history";
+const FKEY="sennin_fav";
+let history=JSON.parse(localStorage.getItem(HKEY)||"[]");
+let fav=JSON.parse(localStorage.getItem(FKEY)||"[]");
+let page=1,currentQ="";
+
+function save(){
+  localStorage.setItem(HKEY,JSON.stringify(history));
+  localStorage.setItem(FKEY,JSON.stringify(fav));
+}
+
+/* ===== SEARCH ===== */
+async function search(reset=true){
+  if(reset){page=1;results.innerHTML="";}
+  for(const base of SEARCH_APIS_EXTRA){
+    try{
+      const r=await fetch(`${base}api/v1/search?q=${encodeURIComponent(currentQ)}&page=${page}&type=video`);
+      if(!r.ok)continue;
+      const d=await r.json();
+      render(d);
+      more.style.display=d.length?"block":"none";
+      page++;
+      return;
+    }catch{}
+  }
+  alert("検索不可");
+}
+
+/* ===== RENDER ===== */
+function render(list){
+  list.forEach(v=>{
+    if(!v.videoId)return;
+    const card=document.createElement("div");
+    card.className="video-card";
+    card.innerHTML=`
+      <img src="${v.videoThumbnails?.slice(-1)[0]?.url||""}">
+      <div class="info">
+        <div class="title">${v.title}</div>
+        <div class="channel">${v.author}</div>
+      </div>`;
+    card.onclick=()=>{
+      history=history.filter(x=>x.videoId!==v.videoId);
+      history.unshift(v);history=history.slice(0,50);save();
+      location.href=`watch.html?id=${v.videoId}`;
+    };
+    results.appendChild(card);
+  });
+}
+
+/* ===== UI ===== */
+function switchTab(t){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
+  document.getElementById("tab-"+t).classList.add("active");
+  document.getElementById(t).classList.add("active");
+}
+
+tab-search.onclick=()=>switchTab("search");
+tab-history.onclick=()=>{switchTab("history");renderList(history,historyList);}
+tab-fav.onclick=()=>{switchTab("fav");renderList(fav,favList);}
+
+function renderList(list,el){el.innerHTML="";render(list);}
+
+searchBtn.onclick=()=>{
+  currentQ=q.value.trim();
+  if(currentQ)search(true);
+};
+more.onclick=()=>search(false);
+clearHistory.onclick=()=>{
+  if(confirm("削除しますか？")){
+    history=[];save();renderList(history,historyList);
+  }
+};
+</script>
+</body>
+</html>
