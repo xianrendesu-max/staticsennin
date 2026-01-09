@@ -2,34 +2,45 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>仙人YouTubeビュアー</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>仙人Tube 完全版</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#27293d">
+<link rel="manifest" href="manifest.json">
 <style>
-body{font-family:sans-serif;background:#1e1e2f;color:#fff;margin:0}
-header{background:#27293d;padding:1em;text-align:center;font-size:1.5em}
+body{margin:0;background:#1e1e2f;color:#fff;font-family:sans-serif}
+header{background:#27293d;padding:1em;text-align:center;font-size:1.4em}
 nav{display:flex;background:#33354a}
-nav button{flex:1;padding:1em;border:none;background:none;color:#aaa;cursor:pointer}
+nav button{flex:1;padding:1em;border:none;background:none;color:#aaa}
 nav button.active{background:#444667;color:#fff;font-weight:bold}
 main{padding:1em}
 section{display:none}
 section.active{display:block}
-.search-box{display:flex;margin-bottom:1em}
-.search-box input{flex:1;padding:.5em;border:none}
-.search-box button{padding:.5em 1em;border:none;background:#4caf50;color:#fff}
-.video-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1em}
-.video-card{background:#2d2f44;border-radius:8px;overflow:hidden;cursor:pointer}
+
+.search-box{display:flex}
+.search-box input{flex:1;padding:.6em;border:none;border-radius:4px 0 0 4px}
+.search-box button{padding:.6em 1em;border:none;background:#4caf50;color:#fff;border-radius:0 4px 4px 0}
+
+.video-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1em;margin-top:1em}
+.video-card{background:#2d2f44;border-radius:8px;overflow:hidden;cursor:pointer;transition:.2s}
+.video-card:hover{transform:scale(1.03)}
 .video-card img{width:100%}
-.info{padding:.5em}
+.info{padding:.6em}
 .title{font-weight:bold}
-.channel{color:#aaa;font-size:.9em}
-.clear-btn,.load-more-btn{margin:1em auto;display:block;padding:.5em 1em;border:none;border-radius:4px;color:#fff}
-.clear-btn{background:#f44336}
-.load-more-btn{background:#2196f3}
+.channel{font-size:.85em;color:#aaa}
+
+#loading{display:none;text-align:center;margin:2em}
+.spinner{width:40px;height:40px;border:4px solid #555;border-top:4px solid #4caf50;border-radius:50%;animation:spin 1s linear infinite;margin:auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.alert{position:fixed;top:-80px;left:50%;transform:translateX(-50%);
+background:#f44336;color:white;padding:1em 2em;border-radius:6px;
+transition:.5s;z-index:999}
+.alert.show{top:20px}
 </style>
 </head>
-<body>
 
-<header>仙人YouTubeビュアー</header>
+<body>
+<header>仙人Tube（完全静止版）</header>
 
 <nav>
 <button id="tab-search" class="active">検索</button>
@@ -37,123 +48,121 @@ section.active{display:block}
 <button id="tab-fav">お気に入り</button>
 </nav>
 
+<div id="alert" class="alert">検索に失敗しました</div>
+
 <main>
 <section id="search" class="active">
 <div class="search-box">
-<input id="q" placeholder="検索...">
-<button id="searchBtn">検索</button>
+<input id="q" placeholder="検索…">
+<button onclick="search()">検索</button>
 </div>
+<div id="loading"><div class="spinner"></div><p>検索中…</p></div>
 <div id="results" class="video-list"></div>
-<button id="more" class="load-more-btn" style="display:none">もっと見る</button>
 </section>
 
-<section id="history">
-<button class="clear-btn" id="clearHistory">履歴を全削除</button>
-<div id="historyList" class="video-list"></div>
-</section>
-
-<section id="fav">
-<div id="favList" class="video-list"></div>
-</section>
+<section id="history"><div id="history-list" class="video-list"></div></section>
+<section id="fav"><div id="fav-list" class="video-list"></div></section>
 </main>
 
 <script>
-/* ===== API LISTS（完全一致・改変なし）===== */
-const VIDEO_APIS_EXTRA = [
-    "https://invidious.exma.de/",
-    "https://invidious.f5.si/",
-    "https://siawaseok-wakame-server2.glitch.me/",
-    "https://lekker.gay/",
-    "https://id.420129.xyz/",
-    "https://invid-api.poketube.fun/",
-    "https://eu-proxy.poketube.fun/",
-    "https://cal1.iv.ggtyler.dev/",
-    "https://pol1.iv.ggtyler.dev/",
+const SEARCH_APIS=[
+"https://pol1.iv.ggtyler.dev",
+"https://youtube.mosesmang.com",
+"https://iteroni.com",
+"https://invidious.0011.lt",
+"https://iv.melmac.space",
+"https://rust.oskamp.nl"
 ];
 
-const SEARCH_APIS_EXTRA = [
-    "https://pol1.iv.ggtyler.dev/",
-    "https://youtube.mosesmang.com/",
-    "https://iteroni.com/",
-    "https://invidious.0011.lt/",
-    "https://iv.melmac.space/",
-    "https://rust.oskamp.nl/",
-];
+const HISTORY_KEY="sennin_history";
+const FAV_KEY="sennin_fav";
 
-/* ===== STORAGE ===== */
-const HKEY="sennin_history";
-const FKEY="sennin_fav";
-let history=JSON.parse(localStorage.getItem(HKEY)||"[]");
-let fav=JSON.parse(localStorage.getItem(FKEY)||"[]");
-let page=1,currentQ="";
+const results=document.getElementById("results");
+const loading=document.getElementById("loading");
+const alertBox=document.getElementById("alert");
 
-function save(){
-  localStorage.setItem(HKEY,JSON.stringify(history));
-  localStorage.setItem(FKEY,JSON.stringify(fav));
+function showAlert(){
+ alertBox.classList.add("show");
+ setTimeout(()=>alertBox.classList.remove("show"),3000);
 }
 
-/* ===== SEARCH ===== */
-async function search(reset=true){
-  if(reset){page=1;results.innerHTML="";}
-  for(const base of SEARCH_APIS_EXTRA){
-    try{
-      const r=await fetch(`${base}api/v1/search?q=${encodeURIComponent(currentQ)}&page=${page}&type=video`);
-      if(!r.ok)continue;
-      const d=await r.json();
-      render(d);
-      more.style.display=d.length?"block":"none";
-      page++;
-      return;
-    }catch{}
-  }
-  alert("検索不可");
+async function search(){
+ const q=document.getElementById("q").value.trim();
+ if(!q)return;
+ results.innerHTML="";
+ loading.style.display="block";
+
+ let videos=[];
+ let seen=new Set();
+
+ for(const base of SEARCH_APIS){
+  try{
+   const r=await fetch(`${base}/api/v1/search?q=${encodeURIComponent(q)}&type=video`);
+   const d=await r.json();
+   if(!Array.isArray(d))continue;
+   d.forEach(v=>{
+    if(!seen.has(v.videoId)){
+     seen.add(v.videoId);
+     videos.push(v);
+    }
+   });
+  }catch{}
+ }
+
+ loading.style.display="none";
+ if(!videos.length){showAlert();return;}
+
+ videos.forEach(v=>{
+  const c=document.createElement("div");
+  c.className="video-card";
+  c.innerHTML=`
+   <img src="https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg">
+   <div class="info">
+    <div class="title">${v.title}</div>
+    <div class="channel">${v.author}</div>
+   </div>`;
+  c.onclick=()=>{
+   save(HISTORY_KEY,v);
+   location.href=`watch.html?id=${v.videoId}`;
+  };
+  results.appendChild(c);
+ });
 }
 
-/* ===== RENDER ===== */
-function render(list){
-  list.forEach(v=>{
-    if(!v.videoId)return;
-    const card=document.createElement("div");
-    card.className="video-card";
-    card.innerHTML=`
-      <img src="${v.videoThumbnails?.slice(-1)[0]?.url||""}">
-      <div class="info">
-        <div class="title">${v.title}</div>
-        <div class="channel">${v.author}</div>
-      </div>`;
-    card.onclick=()=>{
-      history=history.filter(x=>x.videoId!==v.videoId);
-      history.unshift(v);history=history.slice(0,50);save();
-      location.href=`watch.html?id=${v.videoId}`;
-    };
-    results.appendChild(card);
-  });
+function save(key,v){
+ let a=JSON.parse(localStorage.getItem(key)||"[]");
+ if(!a.some(x=>x.videoId===v.videoId)){
+  a.unshift(v);a=a.slice(0,50);
+  localStorage.setItem(key,JSON.stringify(a));
+ }
 }
 
-/* ===== UI ===== */
-function switchTab(t){
-  document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
-  document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
-  document.getElementById("tab-"+t).classList.add("active");
-  document.getElementById(t).classList.add("active");
+function render(key,id){
+ const el=document.getElementById(id);
+ el.innerHTML="";
+ JSON.parse(localStorage.getItem(key)||"[]").forEach(v=>{
+  const c=document.createElement("div");
+  c.className="video-card";
+  c.innerHTML=`
+   <img src="https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg">
+   <div class="info"><div class="title">${v.title}</div></div>`;
+  c.onclick=()=>location.href=`watch.html?id=${v.videoId}`;
+  el.appendChild(c);
+ });
 }
 
 tab-search.onclick=()=>switchTab("search");
-tab-history.onclick=()=>{switchTab("history");renderList(history,historyList);}
-tab-fav.onclick=()=>{switchTab("fav");renderList(fav,favList);}
+tab-history.onclick=()=>{switchTab("history");render(HISTORY_KEY,"history-list")}
+tab-fav.onclick=()=>{switchTab("fav");render(FAV_KEY,"fav-list")}
 
-function renderList(list,el){el.innerHTML="";render(list);}
+function switchTab(t){
+ document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
+ document.getElementById(t).classList.add("active");
+ document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
+ document.getElementById("tab-"+t).classList.add("active");
+}
 
-searchBtn.onclick=()=>{
-  currentQ=q.value.trim();
-  if(currentQ)search(true);
-};
-more.onclick=()=>search(false);
-clearHistory.onclick=()=>{
-  if(confirm("削除しますか？")){
-    history=[];save();renderList(history,historyList);
-  }
-};
+if("serviceWorker"in navigator)navigator.serviceWorker.register("service-worker.js");
 </script>
 </body>
 </html>
